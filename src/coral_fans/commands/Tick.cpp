@@ -11,115 +11,37 @@
 #include "mc/server/commands/CommandRegistry.h"
 #include "mc/util/Timer.h"
 #include "mc/world/Minecraft.h"
+#include "coral_fans/classes/TickSpeed.h"
 
 namespace coral_fans::commands {
-class TickSpeed {
-public:
-    static int sprintTicksGoal = 0;
-    static bool shouldInterruptSprint = false;
-    static std::chrono::time_point<std::chrono::system_clock> sprintStartDate;
-
-    static void setRate(float rate) {
-        unfreeze();
-        if (rate <= 0) {
-            rate = 0.0;
-        }
-        auto mc = ll::service::getMinecraft();
-        mc->setSimTimeScale(rate / 20.0f);
-    }
-
-    static void freeze() {
-        auto mc = ll::service::getMinecraft();
-        mc->setSimTimePause(false);
-    }
-
-    static void unfreeze() {
-        auto mc = ll::service::getMinecraft();
-        mc->setSimTimePause(true);
-    }
-
-    static void step(int ticks) {
-        auto mc = ll::service::getMinecraft();
-        if (ticks <= 0) {
-            ticks = 0;
-        }
-        mc->mSimTimer.advanceTime(ticks);
-    }
-
-    static std::string sprint(CommandOutput& output, int ticks) {
-        auto mc = ll::service::getMinecraft();
-        if (!mc.has_value()) {
-            output.error("command.tick.sprint.error.generic"_tr());
-            return;
-        }
-        if (ticks == 0) {
-            if (isSprinting()) {
-                finishSprint(CommandOutput& output);
-                output.success("command.tick.sprint.success.interrupt"_tr());
-            }
-            return;
-        }
-        if (isSprinting()) {
-            output.error("command.tick.sprint.error.sprinting"_tr());
-            return;
-        }
-        sprintStartDate = std::chrono::system_clock::now();
-        mc->mSimTimer.advanceTime(ticks);
-        sprintTicksGoal = ticks;
-        output.success("command.tick.sprint.success.start"_tr(ticks));
-    }
-
-    static void finishSprint(CommandOutput& output) {
-        int completedTicks = sprintTicksGoal;
-        double msToCompletion = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now() - sprintStartDate).count();
-        if (msToCompletion == 0.0)
-            msToCompletion = 1.0;
-        int tps = static_cast<int>(1000.0 * completedTicks / msToCompletion);
-        double mspt = (1.0 * msToCompletion) / completedTicks;
-        sprintTicksGoal = 0;
-        output.success("command.tick.sprint.success.complete"_tr(tps, mspt));
-    }
-
-    static bool isFrozen() {
-        auto mc = ll::service::getMinecraft();
-        return mc->getSimPaused();
-    }
-
-    static bool shouldFinishSprint() {
-        auto mc = ll::service::getMinecraft();
-        return mc->mSimTimer.mSteppingTick == 0 && sprintTicksGoal != 0;
-    }
-
-    static bool isSprinting() {
-        auto mc = ll::service::getMinecraft();
-        return mc->mSimTimer.mSteppingTick > 0;
-    }
-
-    static bool isStepping() { // This should probably be different from isSprinting, but they'll function the same for now.
-        auto mc = ll::service::getMinecraft();
-        return mc->mSimTimer.mSteppingTick > 0;
-    }
-
-    static bool onTick() {
-        if (shouldFinishSprint()) {
-            finishSprint(CommandOutput& output);
-        }
-    }
-
-    static void onPlayerQuit(endstone::PlayerQuitEvent &event) {
-        // If no players are online, unfreeze the tick speed. Otherwise, players won't be able to join.
-    }
-};
-
 void registerTickCommand(CommandPermissionLevel permission) {
     using ll::i18n_literals::operator""_tr;
 
-    // reg cmd
     auto& tickCommand = ll::command::CommandRegistrar::getInstance()
                             .getOrCreateCommand("tick", "command.tick.description"_tr(), permission);
 
-    // tick freeze|reset
+    tickCommand.runtimeOverload()
+        .text("query")
+        .execute([](CommandOrigin const&, CommandOutput& output, ll::command::RuntimeCommand const&) {
+            std::string message;
+            if (SimSpeed::isSprinting())
+                message += "command.tick.sprint"_tr();
+            else if (SimSpeed::isFrozen())
+                message += "command.tick.freeze"_tr();
+            else
+                message += "command.tick.unfreeze"_tr();
+            message += "\n" + "command.tick.query.rate"_tr(SimSpeed::getRate());
+            if (SimSpeed::isSprinting() || SimSpeed::isFrozen())
+                message += " " + "command.tick.query.ratenotapplicable"_tr();
+            message += "\n";
+            message += "command.tick.query.mspt"_tr(ll::service::getBedrock().getMspt()); // does this service exist lol
+            if (!SimSpeed::isSprinting())
+                message += " " + "command.tick.query.targetmspt"_tr(1000.0f / SimSpeed::getRate());
+            message += "\n";
+            output.success(message);
+        });
+
+    // tick freeze|unfreeze
     ll::command::CommandRegistrar::getInstance().tryRegisterRuntimeEnum(
         "tickFreezeType",
         {
@@ -130,20 +52,20 @@ void registerTickCommand(CommandPermissionLevel permission) {
     tickCommand.runtimeOverload()
         .required("tickFreezeType", ll::command::ParamKind::Enum, "tickFreezeType")
         .execute([&](CommandOrigin const&, CommandOutput& output, ll::command::RuntimeCommand const& self) {
-            bool       pause = false;
-            const auto val   = self["tickFreezeType"].get<ll::command::ParamKind::Enum>();
+            bool pause = false;
+            const auto val = self["tickFreezeType"].get<ll::command::ParamKind::Enum>();
             switch (val.index) {
-            case 1:
-                pause = true;
-                break;
-            case 0:
-                pause = false;
-                break;
+                case 0:
+                    SimSpeed::unfreeze();
+                    output.success("command.tick.unfreeze"_tr());
+                    break;
+                case 1:
+                    SimSpeed::freeze();
+                    output.success("command.tick.freeze"_tr());
+                    break;
             }
             // LevelEventPacket{LevelEvent::SimTimeStep, origin.getWorldPosition(), pause}.sendToClients();
-            auto mc = ll::service::getMinecraft();
-            if (mc.has_value()) mc->setSimTimePause(pause);
-            output.success("command.tick.set.output"_tr(val.name));
+
         });
 
     // tick rate <float>

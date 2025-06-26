@@ -110,13 +110,15 @@
             }
         },
         "tick": {
-            "description": "Controls or queries the tick status of the game",
+            "description": "Controls or queries the tick rate of the game",
             "query": {
-                "output": "{} per tick"
+                "rate": "Target tick rate: {:.1f} per second.",
+                "ratenotapplicable": "(Ignored, reference only)",
+                "mspt": "Average time per tick: {:.1f}ms",
+                "targetmspt": "(Target: {:.1f}ms)"
             },
-            "set": {
-                "output": "set tick {}"
-            },
+            "freeze": "The game is frozen.",
+            "unfreeze": "The game is running normally.",
             "rate": {
                 "success": "Set the target tick rate to {} tick(s) per second.",
                 "error": {
