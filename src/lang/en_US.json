@@ -118,11 +118,24 @@
                 "output": "set tick {}"
             },
             "rate": {
-                "success": "set {} tick(s) per second",
-                "error": "rate must be non negative"
+                "success": "Set the target tick rate to {} tick(s) per second.",
+                "error": {
+                    "generic": "Failed to set tick rate.",
+                    "outofrange": "The tick rate must be greater than {:.1f}, found {}."
+                }
             },
             "step": {
                 "output": "step {} tick(s)"
+            },
+            "sprint": {
+                "success": {
+                    "start": "Sprinting {} ticks...",
+                    "complete": "Sprint completed at {} tps ({} mspt).",
+                    "interrupt": "Interrupted current tick sprint."
+                },
+                "error": {
+                    "sprinting": "The game is already sprinting."
+                }
             }
         },
         "hsa": {
